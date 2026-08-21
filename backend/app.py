@@ -2,6 +2,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+import agent
 import model as model_module
 
 app = FastAPI(title="Telco Churn Advisor API")
@@ -45,5 +46,5 @@ def predict(req: PredictRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    # TODO: tool-calling agent loop (predict_churn + RAG retrieval)
-    return ChatResponse(reply="", sources=[], tool_calls=[])
+    result = agent.run_chat(req.customer_id, req.message)
+    return ChatResponse(**result)
