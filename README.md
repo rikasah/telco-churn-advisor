@@ -7,16 +7,19 @@ Final project AI Engineer — prediksi customer churn + agent chat (tool-calling
 ```
 .
 ├── docker-compose.yml
-├── ingestion/         # script cleaning + validasi + scheduler (APScheduler)
+├── ingestion/         # fetch + cleaning + validasi + scheduler (APScheduler)
 ├── backend/           # FastAPI: training script, /predict, /chat, chroma store
-│   ├── train.py
-│   ├── app.py
-│   └── docs/          # PDF/markdown FAQ & T&C untuk RAG
-├── frontend/          # Streamlit chat
-├── mlflow/            # MLflow tracking server
-├── postgres/          # Postgres image
+│   ├── train.py       # stratified split, log MLflow runs, register champion model
+│   ├── app.py         # FastAPI app: /health, /predict, /chat
+│   ├── model.py        # load champion model dari MLflow, scoring
+│   ├── agent.py        # tool-calling loop (OpenRouter) untuk /chat
+│   ├── rag.py          # chunk + embed FAQ docs ke Chroma
+│   └── docs/           # FAQ & kebijakan retensi untuk RAG
+├── frontend/           # Streamlit chat
+├── mlflow/             # MLflow tracking server
+├── postgres/           # Postgres image
 ├── docs/
-│   └── injection_tests.md
+│   └── injection_tests.md   # hasil percobaan prompt injection nyata
 └── README.md
 ```
 
@@ -36,17 +39,50 @@ POST /chat
 
 ```bash
 cp .env.example .env
+# isi OPENROUTER_API_KEY di .env (dibutuhkan agar /chat bisa memanggil LLM)
 docker compose up --build
 ```
 
-Service yang tersedia setelah `up`:
+Ingestion otomatis mengisi Postgres begitu container jalan. Untuk melatih model dan
+mengisi MLflow Model Registry (dibutuhkan sebelum `/predict` bisa menjawab):
 
-| Service    | URL                              |
-|------------|-----------------------------------|
-| Frontend   | http://localhost:8501             |
-| Backend    | http://localhost:8000/docs        |
-| MLflow UI  | http://localhost:5000             |
-| Ingestion  | http://localhost:8001/health      |
-| Postgres   | localhost:5432                    |
+```bash
+docker compose exec backend python train.py
+```
 
-Status: skeleton — endpoint tersedia dan mengembalikan respons kosong/placeholder, logika training/agent/ingestion belum diimplementasikan.
+Service yang tersedia setelah `up` (port host bisa diubah lewat `.env`):
+
+| Service    | URL                                |
+|------------|-------------------------------------|
+| Frontend   | http://localhost:8502               |
+| Backend    | http://localhost:8000/docs          |
+| MLflow UI  | http://localhost:5001               |
+| Ingestion  | http://localhost:8001/health        |
+| Postgres   | localhost:5432                      |
+
+(Port default MLflow/Frontend digeser dari 5000/8501 karena sering bentrok dengan
+AirPlay Receiver macOS dan project Streamlit lain di mesin dev.)
+
+## Deploy publik (Cloudflare Tunnel)
+
+```bash
+brew install cloudflared   # sekali saja
+cloudflared tunnel --url http://localhost:8502
+```
+
+Akan muncul URL publik `https://<random>.trycloudflare.com` di terminal — itu yang
+dibagikan ke evaluator. URL ini ephemeral: berubah setiap kali tunnel di-restart, dan
+hanya hidup selama Mac + `docker compose up` + proses `cloudflared` tetap berjalan.
+Jalankan ini sesaat sebelum sesi demo.
+
+## Status implementasi
+
+- ✅ Ingestion otomatis (IBM Telco Churn dataset → Postgres, on-startup + hourly)
+- ✅ Training dengan stratified split, PR-AUC & recall di-log ke MLflow, model
+  terbaik diregister sebagai `telco_churn_model@champion`
+- ✅ `/predict` memuat model dari MLflow Registry dan benar-benar dipanggil
+- ✅ `/chat`: agent tool-calling manual (OpenRouter) yang memutuskan sendiri kapan
+  memanggil `predict_churn` / `retrieve_docs`, grounded dengan sumber terlihat
+- ✅ Prompt injection: 2 percobaan nyata (direct + indirect via RAG) — lihat
+  [docs/injection_tests.md](docs/injection_tests.md)
+- ⬜ Belum: hardening tambahan (rate limiting, review dokumen sebelum masuk index)
