@@ -1,0 +1,22 @@
+# Env
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# MLflow
+mlflow/mlartifacts/
+mlflow/mlruns/
+mlflow/mlflow.db
+
+# Chroma
+backend/chroma_store/
+
+# Postgres
+postgres/data/
+
+# OS
+.DS_Store
