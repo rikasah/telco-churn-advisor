@@ -67,13 +67,18 @@ AirPlay Receiver macOS dan project Streamlit lain di mesin dev.)
 
 ```bash
 brew install cloudflared   # sekali saja
-cloudflared tunnel --url http://localhost:8502
+./scripts/tunnel.sh
 ```
 
-Akan muncul URL publik `https://<random>.trycloudflare.com` di terminal — itu yang
-dibagikan ke evaluator. URL ini ephemeral: berubah setiap kali tunnel di-restart, dan
-hanya hidup selama Mac + `docker compose up` + proses `cloudflared` tetap berjalan.
-Jalankan ini sesaat sebelum sesi demo.
+Script akan print URL publik `https://<random>.trycloudflare.com` — itu yang dibagikan
+ke evaluator. Catatan soal restart:
+- `docker compose down` lalu `up` lagi **tidak** mengubah URL — tunnel cuma nge-forward
+  ke `localhost:8502`, begitu container hidup lagi URL yang sama otomatis jalan lagi.
+- URL baru hanya dibutuhkan kalau proses `cloudflared`-nya sendiri mati (Ctrl+C, tutup
+  terminal, atau restart Mac). Jalankan `./scripts/tunnel.sh` lagi untuk dapat URL baru.
+- Untuk stop tunnel: `pkill -f 'cloudflared tunnel'`.
+
+Jalankan `./scripts/tunnel.sh` sesaat sebelum sesi demo.
 
 ## Status implementasi
 
