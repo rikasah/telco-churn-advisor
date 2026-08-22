@@ -1,10 +1,14 @@
 """FastAPI backend: /predict (model) and /chat (agent)."""
+import time
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 import agent
+import explain
 import logging_store
 import model as model_module
+import system_status
 
 app = FastAPI(title="Telco Churn Advisor API")
 
@@ -36,14 +40,16 @@ def health():
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest):
+    start = time.perf_counter()
     try:
         result = model_module.predict_churn(req.customer_id)
     except model_module.CustomerNotFound:
         raise HTTPException(status_code=404, detail=f"customer {req.customer_id} not found")
+    duration_ms = (time.perf_counter() - start) * 1000
 
     try:
         logging_store.log_predict(
-            req.customer_id, result["churn_probability"], result["risk_level"]
+            req.customer_id, result["churn_probability"], result["risk_level"], duration_ms
         )
     except Exception:
         pass  # logging is best-effort, never break the actual response
@@ -55,10 +61,12 @@ def predict(req: PredictRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+    start = time.perf_counter()
     result = agent.run_chat(req.customer_id, req.message)
+    duration_ms = (time.perf_counter() - start) * 1000
 
     try:
-        logging_store.log_chat(req.customer_id, result["tool_calls"])
+        logging_store.log_chat(req.customer_id, result["tool_calls"], duration_ms)
     except Exception:
         pass
 
@@ -68,3 +76,29 @@ def chat(req: ChatRequest):
 @app.get("/stats")
 def stats():
     return logging_store.get_stats()
+
+
+@app.get("/system-status")
+def system_status_endpoint():
+    return {
+        "data": system_status.get_data_status(),
+        "champion": system_status.get_champion_info(),
+    }
+
+
+@app.get("/model-trend")
+def model_trend():
+    return system_status.get_model_trend()
+
+
+@app.get("/top-risk")
+def top_risk(n: int = 10):
+    return system_status.get_top_risk_customers(n)
+
+
+@app.post("/explain")
+def explain_endpoint(req: PredictRequest):
+    try:
+        return explain.explain_churn(req.customer_id)
+    except model_module.CustomerNotFound:
+        raise HTTPException(status_code=404, detail=f"customer {req.customer_id} not found")

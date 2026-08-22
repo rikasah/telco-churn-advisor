@@ -19,41 +19,48 @@ CREATE TABLE IF NOT EXISTS request_logs (
     churn_probability DOUBLE PRECISION,
     risk_level TEXT,
     tool_calls TEXT,
+    duration_ms DOUBLE PRECISION,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+"""
+
+# Safe to run against a table created before duration_ms existed.
+MIGRATE_SQL = """
+ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS duration_ms DOUBLE PRECISION;
 """
 
 
 def _ensure_table():
     with _engine.begin() as conn:
         conn.execute(text(CREATE_TABLE_SQL))
+        conn.execute(text(MIGRATE_SQL))
 
 
-def log_predict(customer_id: str, churn_probability: float, risk_level: str) -> None:
+def log_predict(customer_id: str, churn_probability: float, risk_level: str, duration_ms: float) -> None:
     _ensure_table()
     with _engine.begin() as conn:
         conn.execute(
             text(
                 """
-                INSERT INTO request_logs (endpoint, customer_id, churn_probability, risk_level)
-                VALUES ('predict', :cid, :prob, :risk)
+                INSERT INTO request_logs (endpoint, customer_id, churn_probability, risk_level, duration_ms)
+                VALUES ('predict', :cid, :prob, :risk, :dur)
                 """
             ),
-            {"cid": customer_id, "prob": churn_probability, "risk": risk_level},
+            {"cid": customer_id, "prob": churn_probability, "risk": risk_level, "dur": duration_ms},
         )
 
 
-def log_chat(customer_id: str, tool_calls: list[str]) -> None:
+def log_chat(customer_id: str, tool_calls: list[str], duration_ms: float) -> None:
     _ensure_table()
     with _engine.begin() as conn:
         conn.execute(
             text(
                 """
-                INSERT INTO request_logs (endpoint, customer_id, tool_calls)
-                VALUES ('chat', :cid, :tools)
+                INSERT INTO request_logs (endpoint, customer_id, tool_calls, duration_ms)
+                VALUES ('chat', :cid, :tools, :dur)
                 """
             ),
-            {"cid": customer_id, "tools": ",".join(tool_calls)},
+            {"cid": customer_id, "tools": ",".join(tool_calls), "dur": duration_ms},
         )
 
 
@@ -95,7 +102,7 @@ def get_stats(recent_limit: int = 20) -> dict:
         recent_rows = conn.execute(
             text(
                 """
-                SELECT endpoint, customer_id, risk_level, tool_calls, created_at
+                SELECT endpoint, customer_id, risk_level, tool_calls, duration_ms, created_at
                 FROM request_logs ORDER BY created_at DESC LIMIT :n
                 """
             ),
@@ -107,10 +114,28 @@ def get_stats(recent_limit: int = 20) -> dict:
                 "customer_id": r[1],
                 "risk_level": r[2],
                 "tool_calls": r[3],
-                "created_at": r[4].isoformat() if r[4] else None,
+                "duration_ms": round(r[4], 1) if r[4] is not None else None,
+                "created_at": r[5].isoformat() if r[5] else None,
             }
             for r in recent_rows
         ]
+
+        latency_rows = conn.execute(
+            text(
+                """
+                SELECT endpoint,
+                       avg(duration_ms) AS avg_ms,
+                       percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_ms
+                FROM request_logs
+                WHERE duration_ms IS NOT NULL
+                GROUP BY endpoint
+                """
+            )
+        ).all()
+        latency = {
+            row[0]: {"avg_ms": round(row[1], 1), "p95_ms": round(row[2], 1)}
+            for row in latency_rows
+        }
 
     return {
         "total_requests": total,
@@ -118,5 +143,6 @@ def get_stats(recent_limit: int = 20) -> dict:
         "chat_count": chat_count,
         "risk_level_distribution": risk_distribution,
         "top_tools": top_tools,
+        "latency": latency,
         "recent": recent,
     }
