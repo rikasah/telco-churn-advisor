@@ -9,6 +9,7 @@ import os
 
 import requests
 
+import explain
 import model as model_module
 import rag
 
@@ -21,10 +22,15 @@ SYSTEM_PROMPT = """\
 Kamu adalah Telco Churn Advisor, asisten yang membantu menjelaskan risiko churn \
 pelanggan dan kebijakan retensi perusahaan telco.
 
-Kamu punya dua tools:
+Kamu punya tiga tools:
 - predict_churn(customer_id): memprediksi probabilitas churn & risk level pelanggan \
 dari model ML yang sudah dilatih. Panggil ini HANYA jika user menyebut customer_id \
 atau bertanya tentang risiko/prediksi churn pelanggan tertentu.
+- explain_prediction(customer_id): membongkar prediksi model untuk pelanggan tertentu \
+menjadi faktor-faktor konkret (pakai SHAP) -- bukan cuma skor, tapi ATRIBUT ASLI \
+pelanggan itu (kontrak, tenure, dst) yang paling mendorong skor risikonya naik/turun. \
+Panggil ini kalau user bertanya MENGAPA pelanggan tertentu berisiko, supaya \
+penjelasanmu berdasarkan alasan model itu sendiri, bukan cuma tebakan umum dari dokumen.
 - retrieve_docs(query): mencari potongan dokumen FAQ/kebijakan internal (kontrak, \
 layanan, retensi). Panggil ini HANYA jika user bertanya sesuatu yang butuh referensi \
 kebijakan atau penjelasan faktual dari dokumen, bukan untuk obrolan umum.
@@ -33,8 +39,9 @@ Putuskan sendiri, per giliran, tool mana (jika ada) yang benar-benar dibutuhkan.
 Jangan panggil tool yang tidak relevan dengan pertanyaan.
 
 Jika user bertanya MENGAPA seorang pelanggan berisiko churn, gunakan predict_churn \
-untuk skornya DAN retrieve_docs untuk mencari faktor-faktor risiko yang relevan dari \
-dokumen, supaya penjelasanmu grounded pada kebijakan/data nyata, bukan tebakan umum.
+untuk skornya, explain_prediction untuk faktor konkret dari model, DAN retrieve_docs \
+untuk konteks kebijakan yang relevan -- supaya penjelasanmu grounded pada alasan model \
+itu sendiri DAN kebijakan perusahaan, bukan tebakan umum.
 
 Jika jawabanmu menggunakan informasi dari retrieve_docs, sebutkan sumbernya secara \
 eksplisit (nama file & bagian) di jawabanmu.
@@ -52,6 +59,18 @@ TOOLS = [
         "function": {
             "name": "predict_churn",
             "description": "Predict churn probability and risk level for a customer_id using the trained ML model.",
+            "parameters": {
+                "type": "object",
+                "properties": {"customer_id": {"type": "string"}},
+                "required": ["customer_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "explain_prediction",
+            "description": "Explain WHY a customer got their churn score, using SHAP to surface the actual customer attributes that drove the prediction up or down.",
             "parameters": {
                 "type": "object",
                 "properties": {"customer_id": {"type": "string"}},
@@ -96,6 +115,13 @@ def _execute_tool(name: str, args: dict, sources: list[str]) -> str:
     if name == "predict_churn":
         try:
             result = model_module.predict_churn(args["customer_id"])
+        except model_module.CustomerNotFound:
+            return json.dumps({"error": f"customer {args['customer_id']} not found"})
+        return json.dumps(result)
+
+    if name == "explain_prediction":
+        try:
+            result = explain.explain_churn(args["customer_id"])
         except model_module.CustomerNotFound:
             return json.dumps({"error": f"customer {args['customer_id']} not found"})
         return json.dumps(result)

@@ -132,12 +132,31 @@ def main():
             results.append({"run_id": run.info.run_id, "pr_auc": metrics["pr_auc"]})
 
     best = max(results, key=lambda r: r["pr_auc"])
-    print(f"Best run: {best['run_id']} (pr_auc={best['pr_auc']:.4f})")
+    print(f"Best run this session: {best['run_id']} (pr_auc={best['pr_auc']:.4f})")
+
+    # Champion/challenger gate: only promote if the new best actually beats
+    # the current champion, re-evaluated on this run's own test split so the
+    # comparison is apples-to-apples even if the underlying data has grown.
+    champion_pr_auc = None
+    try:
+        champion_model = mlflow.sklearn.load_model(f"models:/{REGISTERED_MODEL_NAME}@champion")
+        champion_proba = champion_model.predict_proba(X_test)[:, 1]
+        champion_pr_auc = average_precision_score(y_test, champion_proba)
+        print(f"Current champion re-evaluated on this test split: pr_auc={champion_pr_auc:.4f}")
+    except Exception:
+        print("No existing champion found -- this run's best becomes champion by default.")
 
     model_uri = f"runs:/{best['run_id']}/model"
     mv = mlflow.register_model(model_uri, REGISTERED_MODEL_NAME)
-    client.set_registered_model_alias(REGISTERED_MODEL_NAME, "champion", mv.version)
-    print(f"Registered {REGISTERED_MODEL_NAME} v{mv.version} as @champion")
+
+    if champion_pr_auc is None or best["pr_auc"] > champion_pr_auc:
+        client.set_registered_model_alias(REGISTERED_MODEL_NAME, "champion", mv.version)
+        print(f"Promoted {REGISTERED_MODEL_NAME} v{mv.version} to @champion "
+              f"(challenger pr_auc={best['pr_auc']:.4f} > champion pr_auc={champion_pr_auc})")
+    else:
+        print(f"Challenger did NOT beat champion (challenger pr_auc={best['pr_auc']:.4f} "
+              f"<= champion pr_auc={champion_pr_auc:.4f}) -- @champion alias unchanged. "
+              f"New version v{mv.version} registered but not promoted.")
 
 
 if __name__ == "__main__":
