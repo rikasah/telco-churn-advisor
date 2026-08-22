@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 import agent
+import logging_store
 import model as model_module
 
 app = FastAPI(title="Telco Churn Advisor API")
@@ -39,6 +40,14 @@ def predict(req: PredictRequest):
         result = model_module.predict_churn(req.customer_id)
     except model_module.CustomerNotFound:
         raise HTTPException(status_code=404, detail=f"customer {req.customer_id} not found")
+
+    try:
+        logging_store.log_predict(
+            req.customer_id, result["churn_probability"], result["risk_level"]
+        )
+    except Exception:
+        pass  # logging is best-effort, never break the actual response
+
     return PredictResponse(
         churn_probability=result["churn_probability"], risk_level=result["risk_level"]
     )
@@ -47,4 +56,15 @@ def predict(req: PredictRequest):
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     result = agent.run_chat(req.customer_id, req.message)
+
+    try:
+        logging_store.log_chat(req.customer_id, result["tool_calls"])
+    except Exception:
+        pass
+
     return ChatResponse(**result)
+
+
+@app.get("/stats")
+def stats():
+    return logging_store.get_stats()
