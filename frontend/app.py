@@ -71,7 +71,8 @@ with tab_analytics:
             st.subheader("Distribusi risk level")
             risk = stats["risk_level_distribution"]
             if risk:
-                st.bar_chart(pd.Series(risk, name="jumlah"))
+                df_risk = pd.DataFrame({"risk_level": list(risk.keys()), "jumlah": list(risk.values())})
+                st.bar_chart(df_risk, x="risk_level", y="jumlah")
             else:
                 st.info("Belum ada data /predict.")
 
@@ -79,7 +80,8 @@ with tab_analytics:
             st.subheader("Tools yang paling sering dipanggil agent")
             tools = stats["top_tools"]
             if tools:
-                st.bar_chart(pd.Series(tools, name="jumlah"))
+                df_tools = pd.DataFrame({"tool": list(tools.keys()), "jumlah": list(tools.values())})
+                st.bar_chart(df_tools, x="tool", y="jumlah")
             else:
                 st.info("Belum ada data /chat dengan tool call.")
 
