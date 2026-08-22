@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import shap
 
-from features import BOOLEAN, CATEGORICAL, FEATURE_COLUMNS, NUMERIC
+from features import BOOLEAN, CATEGORICAL, FEATURE_COLUMNS
 from model import _engine, _load_model, get_customer_row
 
 N_BACKGROUND = 50
