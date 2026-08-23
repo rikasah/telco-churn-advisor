@@ -20,7 +20,7 @@ with tab_chat:
     customer_id = st.text_input("Customer ID", value="7590-VHVEG")
 
     st.caption(
-        "Agent ini bisa lebih dari sekadar melaporkan skor churn -- bisa menjelaskan "
+        "Agent ini bisa lebih dari sekadar melaporkan skor churn. Agent dapat menjelaskan "
         "alasannya, menjawab pertanyaan kebijakan, atau sekadar menyapa. Coba salah satu "
         "contoh di bawah, atau ketik pertanyaan sendiri."
     )
@@ -39,45 +39,51 @@ with tab_chat:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # Render full history first, so the input box below always ends up
+    # pinned at the very bottom of the conversation, not sandwiched
+    # between old and new turns.
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
+            if msg.get("sources"):
+                st.caption(f"Sources: {', '.join(msg['sources'])}")
+            if msg.get("tool_calls"):
+                st.caption(f"Tools used: {', '.join(msg['tool_calls'])}")
 
     typed_prompt = st.chat_input(
         "Tanya soal customer ini, kebijakan retensi, atau apa saja..."
     )
     prompt = clicked_example or typed_prompt
+
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.write(prompt)
-
-        with st.chat_message("assistant"):
-            try:
-                resp = requests.post(
-                    f"{BACKEND_URL}/chat",
-                    json={"customer_id": customer_id, "message": prompt},
-                    timeout=30,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                reply = data.get("reply", "")
-                st.write(reply)
-                if data.get("sources"):
-                    st.caption(f"Sources: {', '.join(data['sources'])}")
-                if data.get("tool_calls"):
-                    st.caption(f"Tools used: {', '.join(data['tool_calls'])}")
-            except requests.RequestException as e:
-                reply = f"Error calling backend: {e}"
-                st.error(reply)
-
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+        try:
+            resp = requests.post(
+                f"{BACKEND_URL}/chat",
+                json={"customer_id": customer_id, "message": prompt},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": data.get("reply", ""),
+                    "sources": data.get("sources", []),
+                    "tool_calls": data.get("tool_calls", []),
+                }
+            )
+        except requests.RequestException as e:
+            st.session_state.messages.append(
+                {"role": "assistant", "content": f"Error calling backend: {e}"}
+            )
+        st.rerun()
 
 # ============================================================
 # Analytics
 # ============================================================
 with tab_analytics:
-    st.caption("Ringkasan penggunaan sistem secara live -- diambil dari log request nyata di Postgres.")
+    st.caption("Ringkasan penggunaan sistem secara live, diambil dari log request nyata di Postgres.")
 
     if st.button("Refresh"):
         st.rerun()
@@ -210,6 +216,22 @@ with tab_explain:
                 axis=1,
             )
             df_factors["label"] = df_factors["faktor"] + " = " + df_factors["nilai_pelanggan"]
+
+            increasing = [f for f in factors if f["arah"] == "meningkatkan risiko"]
+            decreasing = [f for f in factors if f["arah"] == "menurunkan risiko"]
+
+            def _factor_list(flist):
+                return ", ".join(f"{f['faktor']} ({f['nilai_pelanggan']})" for f in flist)
+
+            summary = (
+                f"Pelanggan **{explain_customer_id}** memiliki probabilitas churn sebesar "
+                f"**{pred['churn_probability']:.1%}**, masuk kategori risiko **{pred['risk_level']}**."
+            )
+            if increasing:
+                summary += f" Faktor yang paling meningkatkan risiko: {_factor_list(increasing)}."
+            if decreasing:
+                summary += f" Faktor yang paling menurunkan risiko: {_factor_list(decreasing)}."
+            st.markdown(summary)
 
             chart = (
                 alt.Chart(df_factors)
