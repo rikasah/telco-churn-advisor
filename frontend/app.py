@@ -17,7 +17,7 @@ tab_chat, tab_analytics, tab_explain = st.tabs(["Chat", "Analytics", "Explain"])
 # Chat
 # ============================================================
 with tab_chat:
-    customer_id = st.text_input("Customer ID", value="C001")
+    customer_id = st.text_input("Customer ID", value="7590-VHVEG")
 
     st.caption(
         "Agent ini bisa lebih dari sekadar melaporkan skor churn -- bisa menjelaskan "
@@ -186,7 +186,7 @@ with tab_analytics:
 # ============================================================
 with tab_explain:
     st.caption("Bongkar prediksi model untuk satu pelanggan menjadi faktor konkret (SHAP).")
-    explain_customer_id = st.text_input("Customer ID untuk dijelaskan", value="C001", key="explain_cid")
+    explain_customer_id = st.text_input("Customer ID untuk dijelaskan", value="7590-VHVEG", key="explain_cid")
 
     if st.button("Jelaskan prediksi"):
         try:
