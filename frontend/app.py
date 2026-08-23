@@ -43,9 +43,10 @@ with tab_chat:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    prompt = clicked_example or st.chat_input(
+    typed_prompt = st.chat_input(
         "Tanya soal customer ini, kebijakan retensi, atau apa saja..."
     )
+    prompt = clicked_example or typed_prompt
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
