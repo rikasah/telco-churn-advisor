@@ -1,5 +1,6 @@
 """Streamlit UI for Telco Churn Advisor: chat, analytics, and explainability."""
 import os
+import re
 
 import altair as alt
 import pandas as pd
@@ -7,6 +8,12 @@ import requests
 import streamlit as st
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
+
+# Telco customer IDs in this dataset always look like 7590-VHVEG (4 digits,
+# dash, 5 letters). Used to detect when a chat message mentions a different
+# customer, so the active customer switches automatically instead of
+# requiring a manual edit of a separate box.
+CUSTOMER_ID_PATTERN = re.compile(r"\b\d{4}-[A-Za-z]{5}\b")
 
 st.set_page_config(page_title="Telco Churn Advisor", layout="wide")
 st.title("Telco Churn Advisor")
@@ -17,12 +24,30 @@ tab_chat, tab_analytics, tab_explain = st.tabs(["Chat", "Analytics", "Explain"])
 # Chat
 # ============================================================
 with tab_chat:
-    customer_id = st.text_input("Customer ID", value="7590-VHVEG")
+    if "active_customer_id" not in st.session_state:
+        st.session_state.active_customer_id = "7590-VHVEG"
+
+    # Bound to a separate widget key (not "active_customer_id" itself) so
+    # a detected ID mention can force-refresh the box's displayed value via
+    # value= on the next rerun -- Streamlit forbids writing to a widget's
+    # own key after it has already been instantiated in the same run.
+    customer_id = st.text_input(
+        "Customer ID aktif",
+        value=st.session_state.active_customer_id,
+        key="customer_id_box",
+        help=(
+            "Otomatis ganti kalau kamu sebut Customer ID lain di pertanyaan "
+            "(contoh: 'bagaimana dengan pelanggan 9248-OJYKK'). Bisa juga diedit "
+            "manual di sini kalau mau."
+        ),
+    )
+    st.session_state.active_customer_id = customer_id
 
     st.caption(
         "Agent ini bisa lebih dari sekadar melaporkan skor satu pelanggan. Agent dapat "
         "menjelaskan alasannya, menjawab pertanyaan kebijakan, memberi statistik agregat "
-        "seluruh basis pelanggan, atau sekadar menyapa. Coba salah satu contoh di bawah, "
+        "seluruh basis pelanggan, atau sekadar menyapa. Sebut Customer ID langsung di "
+        "pertanyaan kalau mau tanya soal pelanggan lain. Coba salah satu contoh di bawah, "
         "atau ketik pertanyaan sendiri."
     )
     example_rows = [
@@ -50,6 +75,8 @@ with tab_chat:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "pending_prompt" not in st.session_state:
+        st.session_state.pending_prompt = None
 
     # Render full history first, so the input box below always ends up
     # pinned at the very bottom of the conversation, not sandwiched
@@ -67,28 +94,49 @@ with tab_chat:
     )
     prompt = clicked_example or typed_prompt
 
-    if prompt:
+    # Phase 1: a new question arrived. Just record it and rerun immediately
+    # -- no network call yet -- so the user's message shows up and the input
+    # box resets right away, instead of sitting blank while we wait on the
+    # backend.
+    if prompt and st.session_state.pending_prompt is None:
+        id_match = CUSTOMER_ID_PATTERN.search(prompt)
+        if id_match:
+            st.session_state.active_customer_id = id_match.group(0).upper()
+            del st.session_state["customer_id_box"]
         st.session_state.messages.append({"role": "user", "content": prompt})
-        try:
-            resp = requests.post(
-                f"{BACKEND_URL}/chat",
-                json={"customer_id": customer_id, "message": prompt},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": data.get("reply", ""),
-                    "sources": data.get("sources", []),
-                    "tool_calls": data.get("tool_calls", []),
-                }
-            )
-        except requests.RequestException as e:
-            st.session_state.messages.append(
-                {"role": "assistant", "content": f"Error calling backend: {e}"}
-            )
+        st.session_state.pending_prompt = prompt
+        st.rerun()
+
+    # Phase 2: the actual (slower) backend call, running in its own script
+    # pass so the chat input above has already been fully rendered before
+    # this blocks.
+    if st.session_state.pending_prompt is not None:
+        with st.chat_message("assistant"):
+            with st.spinner("Menjawab..."):
+                try:
+                    resp = requests.post(
+                        f"{BACKEND_URL}/chat",
+                        json={
+                            "customer_id": st.session_state.active_customer_id,
+                            "message": st.session_state.pending_prompt,
+                        },
+                        timeout=30,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": data.get("reply", ""),
+                            "sources": data.get("sources", []),
+                            "tool_calls": data.get("tool_calls", []),
+                        }
+                    )
+                except requests.RequestException as e:
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": f"Error calling backend: {e}"}
+                    )
+        st.session_state.pending_prompt = None
         st.rerun()
 
 # ============================================================
