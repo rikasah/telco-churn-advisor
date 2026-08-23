@@ -79,7 +79,12 @@ def get_model_trend() -> list[dict]:
     return trend
 
 
-def get_top_risk_customers(n: int = 10) -> list[dict]:
+def _score_all_customers() -> pd.DataFrame:
+    """Batch-score every customer in the database against the live champion
+    model. Shared by get_top_risk_customers and get_risk_summary so both
+    the dashboard's top-risk table and the agent's aggregate-query tools
+    stay consistent with each other.
+    """
     model = model_module._load_model()
     with model_module._engine.connect() as conn:
         df = pd.read_sql("SELECT * FROM customers", conn)
@@ -90,7 +95,20 @@ def get_top_risk_customers(n: int = 10) -> list[dict]:
     X = df[FEATURE_COLUMNS]
     df["churn_probability"] = model.predict_proba(X)[:, 1]
     df["risk_level"] = df["churn_probability"].apply(model_module.risk_level)
+    return df
 
+
+def get_top_risk_customers(n: int = 10) -> list[dict]:
+    df = _score_all_customers()
     top = df.sort_values("churn_probability", ascending=False).head(n)
     cols = ["customer_id", "churn_probability", "risk_level", "contract", "tenure", "monthly_charges"]
     return top[cols].round({"churn_probability": 4}).to_dict(orient="records")
+
+
+def get_risk_summary() -> dict:
+    df = _score_all_customers()
+    counts = df["risk_level"].value_counts().to_dict()
+    return {
+        "total_customers": int(len(df)),
+        "risk_counts": {level: int(counts.get(level, 0)) for level in ["high", "medium", "low"]},
+    }

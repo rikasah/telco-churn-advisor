@@ -20,21 +20,29 @@ with tab_chat:
     customer_id = st.text_input("Customer ID", value="7590-VHVEG")
 
     st.caption(
-        "Agent ini bisa lebih dari sekadar melaporkan skor churn. Agent dapat menjelaskan "
-        "alasannya, menjawab pertanyaan kebijakan, atau sekadar menyapa. Coba salah satu "
-        "contoh di bawah, atau ketik pertanyaan sendiri."
+        "Agent ini bisa lebih dari sekadar melaporkan skor satu pelanggan. Agent dapat "
+        "menjelaskan alasannya, menjawab pertanyaan kebijakan, memberi statistik agregat "
+        "seluruh basis pelanggan, atau sekadar menyapa. Coba salah satu contoh di bawah, "
+        "atau ketik pertanyaan sendiri."
     )
-    example_questions = [
-        "Kenapa saya berisiko pindah dari layanan ini?",
-        "Apa saja penawaran retensi untuk pelanggan berisiko tinggi?",
-        "Apa bedanya kontrak bulanan dan kontrak tahunan?",
-        "Halo, apa kabar?",
+    example_rows = [
+        [
+            "Kenapa saya berisiko pindah dari layanan ini?",
+            "Apa saja penawaran retensi untuk pelanggan berisiko tinggi?",
+            "Apa bedanya kontrak bulanan dan kontrak tahunan?",
+        ],
+        [
+            "Ada berapa pelanggan yang berisiko tinggi churn?",
+            "Sebutkan 5 pelanggan paling berisiko churn saat ini",
+            "Halo, apa kabar?",
+        ],
     ]
-    example_cols = st.columns(len(example_questions))
     clicked_example = None
-    for col, q in zip(example_cols, example_questions):
-        if col.button(q, use_container_width=True):
-            clicked_example = q
+    for row in example_rows:
+        cols = st.columns(len(row))
+        for col, q in zip(cols, row):
+            if col.button(q, use_container_width=True):
+                clicked_example = q
 
     if "messages" not in st.session_state:
         st.session_state.messages = []

@@ -96,6 +96,11 @@ def top_risk(n: int = 10):
     return system_status.get_top_risk_customers(n)
 
 
+@app.get("/risk-summary")
+def risk_summary():
+    return system_status.get_risk_summary()
+
+
 @app.post("/explain")
 def explain_endpoint(req: PredictRequest):
     try:

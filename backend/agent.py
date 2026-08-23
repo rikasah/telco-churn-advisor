@@ -12,6 +12,7 @@ import requests
 import explain
 import model as model_module
 import rag
+import system_status
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
@@ -22,7 +23,7 @@ SYSTEM_PROMPT = """\
 Kamu adalah Telco Churn Advisor, asisten yang membantu menjelaskan risiko churn \
 pelanggan dan kebijakan retensi perusahaan telco.
 
-Kamu punya tiga tools:
+Kamu punya lima tools:
 - predict_churn(customer_id): memprediksi probabilitas churn & risk level pelanggan \
 dari model ML yang sudah dilatih. Panggil ini HANYA jika user menyebut customer_id \
 atau bertanya tentang risiko/prediksi churn pelanggan tertentu.
@@ -34,6 +35,14 @@ penjelasanmu berdasarkan alasan model itu sendiri, bukan cuma tebakan umum dari 
 - retrieve_docs(query): mencari potongan dokumen FAQ/kebijakan internal (kontrak, \
 layanan, retensi). Panggil ini HANYA jika user bertanya sesuatu yang butuh referensi \
 kebijakan atau penjelasan faktual dari dokumen, bukan untuk obrolan umum.
+- count_customers_by_risk(): menghitung jumlah pelanggan di SELURUH basis data untuk \
+tiap kategori risiko (high/medium/low), plus total pelanggan. Panggil ini kalau user \
+bertanya pertanyaan agregat seperti "ada berapa pelanggan berisiko tinggi?" atau \
+"berapa persen pelanggan yang berisiko churn?" -- BUKAN untuk satu pelanggan spesifik.
+- list_high_risk_customers(n): mengembalikan daftar N pelanggan dengan probabilitas \
+churn tertinggi di SELURUH basis data, diurutkan dari yang paling berisiko. Panggil \
+ini kalau user minta daftar/list pelanggan paling berisiko, misalnya "sebutkan 5 \
+pelanggan paling berisiko churn". Default n=10 kalau user tidak menyebutkan jumlah.
 
 Putuskan sendiri, per giliran, tool mana (jika ada) yang benar-benar dibutuhkan. \
 Jangan panggil tool yang tidak relevan dengan pertanyaan.
@@ -90,6 +99,25 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "count_customers_by_risk",
+            "description": "Get aggregate counts of customers per risk level (high/medium/low) across the entire customer base, plus total customer count.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_high_risk_customers",
+            "description": "List the top N customers with the highest churn probability across the entire customer base, sorted descending.",
+            "parameters": {
+                "type": "object",
+                "properties": {"n": {"type": "integer", "description": "How many customers to list, default 10"}},
+            },
+        },
+    },
 ]
 
 
@@ -132,6 +160,13 @@ def _execute_tool(name: str, args: dict, sources: list[str]) -> str:
             if hit["source"] not in sources:
                 sources.append(hit["source"])
         return json.dumps(hits)
+
+    if name == "count_customers_by_risk":
+        return json.dumps(system_status.get_risk_summary())
+
+    if name == "list_high_risk_customers":
+        n = args.get("n") or 10
+        return json.dumps(system_status.get_top_risk_customers(n))
 
     return json.dumps({"error": f"unknown tool {name}"})
 
