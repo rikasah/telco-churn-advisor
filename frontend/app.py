@@ -19,6 +19,23 @@ tab_chat, tab_analytics, tab_explain = st.tabs(["Chat", "Analytics", "Explain"])
 with tab_chat:
     customer_id = st.text_input("Customer ID", value="C001")
 
+    st.caption(
+        "Agent ini bisa lebih dari sekadar melaporkan skor churn -- bisa menjelaskan "
+        "alasannya, menjawab pertanyaan kebijakan, atau sekadar menyapa. Coba salah satu "
+        "contoh di bawah, atau ketik pertanyaan sendiri."
+    )
+    example_questions = [
+        "Kenapa saya berisiko pindah dari layanan ini?",
+        "Apa saja penawaran retensi untuk pelanggan berisiko tinggi?",
+        "Apa bedanya kontrak bulanan dan kontrak tahunan?",
+        "Halo, apa kabar?",
+    ]
+    example_cols = st.columns(len(example_questions))
+    clicked_example = None
+    for col, q in zip(example_cols, example_questions):
+        if col.button(q, use_container_width=True):
+            clicked_example = q
+
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -26,7 +43,10 @@ with tab_chat:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    if prompt := st.chat_input("Tanya sesuatu tentang customer ini..."):
+    prompt = clicked_example or st.chat_input(
+        "Tanya soal customer ini, kebijakan retensi, atau apa saja..."
+    )
+    if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.write(prompt)
