@@ -34,6 +34,10 @@ with tab_chat:
         [
             "Ada berapa pelanggan yang berisiko tinggi churn?",
             "Sebutkan 5 pelanggan paling berisiko churn saat ini",
+            "Berapa persen pelanggan pria dan wanita yang berpotensi churn?",
+        ],
+        [
+            "Gimana churn rate berdasarkan jenis kontrak?",
             "Halo, apa kabar?",
         ],
     ]

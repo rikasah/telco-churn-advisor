@@ -101,6 +101,11 @@ def risk_summary():
     return system_status.get_risk_summary()
 
 
+@app.get("/aggregate")
+def aggregate(group_by: str):
+    return system_status.aggregate_customers(group_by)
+
+
 @app.post("/explain")
 def explain_endpoint(req: PredictRequest):
     try:

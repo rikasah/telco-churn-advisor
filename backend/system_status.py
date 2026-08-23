@@ -12,7 +12,12 @@ from mlflow.tracking import MlflowClient
 from sqlalchemy import text
 
 import model as model_module
-from features import BOOLEAN, FEATURE_COLUMNS
+from features import BOOLEAN, CATEGORICAL, FEATURE_COLUMNS
+
+# Columns the agent is allowed to group by -- an explicit allowlist, never a
+# raw user-supplied column name, so this can never become a SQL/attribute
+# injection vector.
+GROUPABLE_COLUMNS = CATEGORICAL + BOOLEAN
 
 INGESTION_URL = os.environ.get("INGESTION_URL", "http://ingestion:8001")
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000")
@@ -112,3 +117,51 @@ def get_risk_summary() -> dict:
         "total_customers": int(len(df)),
         "risk_counts": {level: int(counts.get(level, 0)) for level in ["high", "medium", "low"]},
     }
+
+
+def aggregate_customers(group_by: str) -> dict:
+    """Flexible breakdown of churn stats by any categorical/boolean column
+    -- e.g. gender, contract, internet_service, payment_method, senior
+    citizen status -- instead of a separate hardcoded tool per question.
+    group_by is validated against GROUPABLE_COLUMNS (real, known-safe
+    column names only), never executed as arbitrary code or SQL.
+    """
+    if group_by not in GROUPABLE_COLUMNS:
+        return {
+            "error": f"Kolom '{group_by}' tidak bisa dipakai untuk pengelompokan.",
+            "kolom_yang_tersedia": GROUPABLE_COLUMNS,
+        }
+
+    df = _score_all_customers()
+
+    display_col = group_by
+    if group_by in BOOLEAN:
+        display_col = f"{group_by}_label"
+        df[display_col] = df[group_by].map({1: "Ya", 0: "Tidak"})
+
+    grouped = df.groupby(display_col).agg(
+        jumlah_pelanggan=("customer_id", "count"),
+        jumlah_churn_aktual=("churn", "sum"),
+        rata_rata_churn_probability=("churn_probability", "mean"),
+    )
+    grouped["persen_churn_aktual"] = (
+        grouped["jumlah_churn_aktual"] / grouped["jumlah_pelanggan"] * 100
+    ).round(2)
+    grouped["rata_rata_churn_probability_persen"] = (
+        grouped["rata_rata_churn_probability"] * 100
+    ).round(2)
+
+    risk_breakdown = (
+        df.groupby([display_col, "risk_level"]).size().unstack(fill_value=0).to_dict(orient="index")
+    )
+
+    hasil = {}
+    for key, row in grouped.iterrows():
+        hasil[str(key)] = {
+            "jumlah_pelanggan": int(row["jumlah_pelanggan"]),
+            "persen_churn_aktual": float(row["persen_churn_aktual"]),
+            "rata_rata_churn_probability_persen": float(row["rata_rata_churn_probability_persen"]),
+            "distribusi_risk_level": {k: int(v) for k, v in risk_breakdown.get(key, {}).items()},
+        }
+
+    return {"group_by": group_by, "hasil": hasil}

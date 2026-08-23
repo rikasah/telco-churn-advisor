@@ -100,3 +100,41 @@ def test_execute_tool_list_high_risk_customers_defaults_to_10(monkeypatch):
     sources = []
     agent._execute_tool("list_high_risk_customers", {}, sources)
     assert captured["n"] == 10
+
+
+def test_execute_tool_aggregate_customers_passes_group_by(monkeypatch):
+    captured = {}
+
+    def fake_aggregate(group_by):
+        captured["group_by"] = group_by
+        return {"group_by": group_by, "hasil": {}}
+
+    monkeypatch.setattr(system_status, "aggregate_customers", fake_aggregate)
+    sources = []
+    agent._execute_tool("aggregate_customers", {"group_by": "gender"}, sources)
+    assert captured["group_by"] == "gender"
+
+
+def test_execute_tool_aggregate_customers_missing_group_by_defaults_empty(monkeypatch):
+    captured = {}
+
+    def fake_aggregate(group_by):
+        captured["group_by"] = group_by
+        return {}
+
+    monkeypatch.setattr(system_status, "aggregate_customers", fake_aggregate)
+    sources = []
+    agent._execute_tool("aggregate_customers", {}, sources)
+    assert captured["group_by"] == ""
+
+
+def test_strip_source_links_removes_markdown_link_to_md_file():
+    text = "Lihat [kebijakan_retensi.md](kebijakan_retensi.md#2) untuk detail."
+    result = agent._strip_source_links(text)
+    assert result == "Lihat kebijakan_retensi.md untuk detail."
+    assert "](" not in result
+
+
+def test_strip_source_links_leaves_other_text_untouched():
+    text = "Skor churn **45.6%**, kategori medium."
+    assert agent._strip_source_links(text) == text
