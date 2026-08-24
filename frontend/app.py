@@ -40,12 +40,17 @@ GROUP_BY_OPTIONS = {
 st.set_page_config(page_title="Telco Churn Advisor", layout="wide")
 st.title("Telco Churn Advisor")
 
-tab_chat, tab_analytics, tab_explain = st.tabs(["Chat", "Analytics", "Explain"])
+# Sidebar is the single, consistent navigation for the whole app (not just
+# a leftover control panel that only makes sense on one page) -- Analytics
+# adds its own sub-navigation below this once selected.
+st.sidebar.title("Navigasi")
+page = st.sidebar.radio("Halaman", ["Chat", "Analytics", "Explain"], key="page_nav")
+st.sidebar.divider()
 
 # ============================================================
 # Chat
 # ============================================================
-with tab_chat:
+if page == "Chat":
     # No visible/editable box: the active customer is tracked silently in
     # session_state and switches automatically whenever a message mentions
     # a customer ID, so there's nothing to manually reset between turns.
@@ -154,8 +159,8 @@ with tab_chat:
 # ============================================================
 # Analytics
 # ============================================================
-with tab_analytics:
-    st.sidebar.header("Analytics")
+elif page == "Analytics":
+    st.sidebar.subheader("Tampilan Analytics")
     section = st.sidebar.radio(
         "Tampilkan",
         [
@@ -332,7 +337,7 @@ with tab_analytics:
 # ============================================================
 # Explain
 # ============================================================
-with tab_explain:
+elif page == "Explain":
     st.caption("Bongkar prediksi model untuk satu pelanggan menjadi faktor konkret (SHAP).")
     explain_customer_id = st.text_input("Customer ID untuk dijelaskan", value="7590-VHVEG", key="explain_cid")
 
