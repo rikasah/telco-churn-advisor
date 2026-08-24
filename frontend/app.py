@@ -260,25 +260,31 @@ elif page == "Analytics":
         st.subheader("Churn rate berdasarkan kategori pelanggan")
         st.caption(
             "Dihitung on-demand dari model champion terhadap seluruh basis pelanggan. "
-            "Pilih kategori di sidebar untuk melihat breakdown-nya."
+            "Pilih satu atau lebih kategori di sidebar untuk membandingkannya berdampingan."
         )
-        group_by = st.sidebar.selectbox(
-            "Kelompokkan berdasarkan",
+        group_bys = st.sidebar.multiselect(
+            "Kelompokkan berdasarkan (bisa pilih lebih dari satu)",
             options=list(GROUP_BY_OPTIONS.keys()),
+            default=["gender"],
             format_func=lambda k: GROUP_BY_OPTIONS[k],
         )
         if st.button("Hitung statistik", key="aggregate_btn"):
-            try:
-                agg = requests.get(
-                    f"{BACKEND_URL}/aggregate", params={"group_by": group_by}, timeout=60
-                ).json()
-            except requests.RequestException as e:
-                st.error(f"Gagal menghitung: {e}")
-                agg = None
+            if not group_bys:
+                st.warning("Pilih minimal satu kategori di sidebar dulu.")
+            for group_by in group_bys:
+                try:
+                    agg = requests.get(
+                        f"{BACKEND_URL}/aggregate", params={"group_by": group_by}, timeout=60
+                    ).json()
+                except requests.RequestException as e:
+                    st.error(f"Gagal menghitung {GROUP_BY_OPTIONS[group_by]}: {e}")
+                    continue
 
-            if agg and "error" in agg:
-                st.error(agg["error"])
-            elif agg:
+                st.markdown(f"#### {GROUP_BY_OPTIONS[group_by]}")
+                if "error" in agg:
+                    st.error(agg["error"])
+                    continue
+
                 rows = []
                 for kategori, v in agg["hasil"].items():
                     risk = v["distribusi_risk_level"]
@@ -314,6 +320,7 @@ elif page == "Analytics":
                 )
                 st.altair_chart(chart, use_container_width=True)
                 st.dataframe(df_agg, use_container_width=True, hide_index=True)
+                st.divider()
 
     elif section == "Tren Model (PR-AUC)":
         st.subheader("Tren PR-AUC antar run training")
