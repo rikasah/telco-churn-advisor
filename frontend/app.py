@@ -279,20 +279,41 @@ elif page == "Analytics":
             if agg and "error" in agg:
                 st.error(agg["error"])
             elif agg:
-                rows = [{"kategori": k, **v} for k, v in agg["hasil"].items()]
+                rows = []
+                for kategori, v in agg["hasil"].items():
+                    risk = v["distribusi_risk_level"]
+                    rows.append(
+                        {
+                            "kategori": kategori,
+                            "jumlah_pelanggan": v["jumlah_pelanggan"],
+                            "persen_churn_aktual": v["persen_churn_aktual"],
+                            "rata_rata_probabilitas_churn": v["rata_rata_churn_probability_persen"],
+                            "risiko_tinggi": risk.get("high", 0),
+                            "risiko_medium": risk.get("medium", 0),
+                            "risiko_rendah": risk.get("low", 0),
+                        }
+                    )
                 df_agg = pd.DataFrame(rows)
                 chart = (
                     alt.Chart(df_agg)
                     .mark_bar()
                     .encode(
-                        x=alt.X("kategori:N", title=GROUP_BY_OPTIONS[group_by]),
-                        y=alt.Y("persen_churn_aktual:Q", title="Persen churn aktual (%)"),
+                        x=alt.X(
+                            "kategori:N",
+                            title=GROUP_BY_OPTIONS[group_by],
+                            axis=alt.Axis(labelLimit=200, labelAngle=-30),
+                        ),
+                        y=alt.Y(
+                            "persen_churn_aktual:Q",
+                            title="Churn aktual (%)",
+                            axis=alt.Axis(titlePadding=15),
+                        ),
                         tooltip=["kategori", "jumlah_pelanggan", "persen_churn_aktual"],
                     )
-                    .properties(height=280)
+                    .properties(height=320, padding={"left": 10, "top": 10, "right": 10, "bottom": 5})
                 )
                 st.altair_chart(chart, use_container_width=True)
-                st.dataframe(df_agg, use_container_width=True)
+                st.dataframe(df_agg, use_container_width=True, hide_index=True)
 
     elif section == "Tren Model (PR-AUC)":
         st.subheader("Tren PR-AUC antar run training")
