@@ -20,6 +20,7 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     churn_probability: float
     risk_level: str
+    model: dict[str, str]
 
 
 class ChatRequest(BaseModel):
@@ -36,6 +37,17 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
+    try:
+        with model_module._engine.connect() as conn:
+            conn.execute(model_module.text("SELECT 1"))
+        model = model_module.get_model_info()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"service not ready: {exc}")
+    return {"status": "ready", "model": model}
 
 
 @app.post("/predict", response_model=PredictResponse)

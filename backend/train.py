@@ -12,7 +12,9 @@ from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     average_precision_score,
+    brier_score_loss,
     f1_score,
+    log_loss,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -20,6 +22,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.calibration import CalibratedClassifierCV
 from sqlalchemy import create_engine
 
 from features import BOOLEAN, CATEGORICAL, NUMERIC, TARGET
@@ -91,6 +94,8 @@ def evaluate(pipeline, X_test, y_test) -> dict:
     y_proba = pipeline.predict_proba(X_test)[:, 1]
     return {
         "pr_auc": average_precision_score(y_test, y_proba),
+        "brier_score": brier_score_loss(y_test, y_proba),
+        "log_loss": log_loss(y_test, y_proba, labels=[0, 1]),
         "recall_churn": recall_score(y_test, y_pred, pos_label=1),
         "precision_churn": precision_score(y_test, y_pred, pos_label=1),
         "f1_churn": f1_score(y_test, y_pred, pos_label=1),
@@ -118,7 +123,9 @@ def main():
     results = []
     for cfg in MODEL_CONFIGS:
         with mlflow.start_run(run_name=cfg["run_name"]) as run:
-            pipeline = build_pipeline(cfg["model"])
+            pipeline = CalibratedClassifierCV(
+                build_pipeline(cfg["model"]), method="sigmoid", cv=3
+            )
             pipeline.fit(X_train, y_train)
             metrics = evaluate(pipeline, X_test, y_test)
 
