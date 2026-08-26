@@ -37,6 +37,37 @@ GROUP_BY_OPTIONS = {
     "paperless_billing": "Paperless Billing",
 }
 
+# Mirrors backend/eval_agent_scope.py -- these groupings are verified live
+# (see that file's docstring), not guessed. Shown in the dashboard so users
+# can tell which kinds of questions are cheap (answered directly, one LLM
+# turn) versus which cost more tokens/latency (each tool call means an
+# extra round trip to the LLM: once to decide to call it, once more after
+# the tool result comes back to compose the final answer).
+NO_TOOL_EXAMPLES = [
+    "Halo, apa kabar?",
+    "Selamat pagi!",
+    "Tolong buatkan pantun singkat tentang hujan.",
+    "Ceritakan lelucon singkat dong.",
+    "Apa itu machine learning secara umum?",
+    "Kamu AI apa sih sebenarnya?",
+]
+
+TOOL_EXAMPLES = [
+    ("predict_churn + explain_prediction + retrieve_docs (3 tools)", "Kenapa saya berisiko pindah dari layanan ini?"),
+    ("predict_churn (1 tool)", "Berapa skor risiko churn pelanggan 3668-QPYBK?"),
+    ("retrieve_docs (1 tool)", "Apa saja penawaran retensi untuk pelanggan berisiko tinggi?"),
+    ("count_customers_by_risk (1 tool)", "Ada berapa pelanggan yang berisiko tinggi churn?"),
+    ("list_high_risk_customers (1 tool)", "Sebutkan 5 pelanggan paling berisiko churn saat ini."),
+    ("aggregate_customers (1 tool)", "Berapa persen pelanggan pria dan wanita yang berpotensi churn?"),
+]
+
+REDIRECTED_EXAMPLES = [
+    "Terima kasih banyak atas bantuannya.",
+    "Siapa presiden Indonesia saat ini?",
+    "1 + 1 berapa?",
+    "Wah keren ya sistem ini.",
+]
+
 st.set_page_config(page_title="Telco Churn Advisor", layout="wide")
 st.title("Telco Churn Advisor")
 
@@ -170,6 +201,7 @@ elif page == "Analytics":
             "Statistik per Kategori",
             "Tren Model (PR-AUC)",
             "Top-Risk Pelanggan",
+            "Efisiensi Tools & Token",
         ],
         key="analytics_section",
     )
@@ -361,6 +393,44 @@ elif page == "Analytics":
                     st.bar_chart(df_top, x="customer_id", y="churn_probability")
             except requests.RequestException as e:
                 st.error(f"Gagal menghitung: {e}")
+
+    elif section == "Efisiensi Tools & Token":
+        st.subheader("Kapan Agent Memakai Tools, dan Kenapa Itu Penting")
+        st.caption(
+            "Setiap kali agent memanggil tool (predict_churn, retrieve_docs, dst), "
+            "percakapan butuh minimal satu putaran tambahan ke LLM: sekali untuk "
+            "memutuskan memanggil tool, sekali lagi setelah hasilnya kembali untuk "
+            "menyusun jawaban akhir. Putaran tambahan ini yang membuat pertanyaan "
+            "bertools makan lebih banyak token dan waktu dibanding pertanyaan yang "
+            "bisa dijawab langsung tanpa tool sama sekali."
+        )
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("#### Tanpa tools (paling hemat & cepat)")
+            for q in NO_TOOL_EXAMPLES:
+                st.markdown(f"- “{q}”")
+
+        with col_b:
+            st.markdown("#### Pakai tools (token lebih banyak)")
+            for tool_label, q in TOOL_EXAMPLES:
+                st.markdown(f"- “{q}”")
+                st.caption(tool_label)
+
+        st.divider()
+        st.markdown("#### Perlu diketahui: tidak semua obrolan singkat itu hemat")
+        st.caption(
+            "Beberapa pertanyaan yang kelihatannya basa-basi ternyata TETAP memicu "
+            "tools, karena agent sengaja tetap membahas pelanggan yang sedang aktif "
+            "alih-alih menjawab di luar topik churn/telco. Contoh:"
+        )
+        for q in REDIRECTED_EXAMPLES:
+            st.markdown(f"- “{q}”")
+
+        st.info(
+            "Mau lihat pola pemakaian tools yang sesungguhnya dari trafik nyata? "
+            "Cek section \"Distribusi Risiko & Tools\" di sidebar."
+        )
 
 # ============================================================
 # Explain
