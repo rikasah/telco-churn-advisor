@@ -17,7 +17,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sqlalchemy import create_engine
@@ -30,6 +30,7 @@ DATABASE_URL = os.environ.get(
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 EXPERIMENT_NAME = "telco_churn"
 REGISTERED_MODEL_NAME = "telco_churn_model"
+CV_FOLDS = 5
 
 MODEL_CONFIGS = [
     {
@@ -98,6 +99,32 @@ def evaluate(pipeline, X_test, y_test) -> dict:
     }
 
 
+def cross_validate_estimator(estimator, X_train, y_train) -> dict:
+    """Stratified k-fold CV on the training split only (X_test stays an
+    untouched holdout). A single random split can land on a fold with an
+    unrepresentative churn ratio -- with churn at ~26% of the data, that's
+    enough to swing PR-AUC/recall by several points purely by luck of the
+    split, which is what "probability tidak sesuai harapan" looks like in
+    practice. Averaging across folds gives a mean +/- std that reflects the
+    model's real stability on imbalanced data instead of one split's luck.
+    """
+    pipeline = build_pipeline(estimator)
+    skf = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=42)
+    scores = cross_validate(
+        pipeline,
+        X_train,
+        y_train,
+        cv=skf,
+        scoring={"pr_auc": "average_precision", "recall": "recall"},
+    )
+    return {
+        "cv_pr_auc_mean": float(scores["test_pr_auc"].mean()),
+        "cv_pr_auc_std": float(scores["test_pr_auc"].std()),
+        "cv_recall_churn_mean": float(scores["test_recall"].mean()),
+        "cv_recall_churn_std": float(scores["test_recall"].std()),
+    }
+
+
 def main():
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment(EXPERIMENT_NAME)
@@ -118,6 +145,8 @@ def main():
     results = []
     for cfg in MODEL_CONFIGS:
         with mlflow.start_run(run_name=cfg["run_name"]) as run:
+            cv_metrics = cross_validate_estimator(cfg["model"], X_train, y_train)
+
             pipeline = build_pipeline(cfg["model"])
             pipeline.fit(X_train, y_train)
             metrics = evaluate(pipeline, X_test, y_test)
@@ -125,14 +154,32 @@ def main():
             mlflow.log_params(cfg["params"])
             mlflow.log_param("train_rows", len(X_train))
             mlflow.log_param("test_rows", len(X_test))
+            mlflow.log_param("cv_folds", CV_FOLDS)
             mlflow.log_metrics(metrics)
+            mlflow.log_metrics(cv_metrics)
             mlflow.sklearn.log_model(pipeline, artifact_path="model")
 
-            print(f"[{cfg['run_name']}] pr_auc={metrics['pr_auc']:.4f} recall_churn={metrics['recall_churn']:.4f}")
-            results.append({"run_id": run.info.run_id, "pr_auc": metrics["pr_auc"]})
+            print(
+                f"[{cfg['run_name']}] cv_pr_auc={cv_metrics['cv_pr_auc_mean']:.4f}"
+                f"(+/-{cv_metrics['cv_pr_auc_std']:.4f}) holdout_pr_auc={metrics['pr_auc']:.4f} "
+                f"recall_churn={metrics['recall_churn']:.4f}"
+            )
+            results.append(
+                {
+                    "run_id": run.info.run_id,
+                    "pr_auc": metrics["pr_auc"],
+                    "cv_pr_auc_mean": cv_metrics["cv_pr_auc_mean"],
+                }
+            )
 
-    best = max(results, key=lambda r: r["pr_auc"])
-    print(f"Best run this session: {best['run_id']} (pr_auc={best['pr_auc']:.4f})")
+    # Selection uses the cross-validated mean, not the single holdout score --
+    # a 5-fold average is far less sensitive to which rows happened to land in
+    # one particular split than a single train/test PR-AUC number is.
+    best = max(results, key=lambda r: r["cv_pr_auc_mean"])
+    print(
+        f"Best run this session (by CV PR-AUC): {best['run_id']} "
+        f"(cv_pr_auc={best['cv_pr_auc_mean']:.4f}, holdout_pr_auc={best['pr_auc']:.4f})"
+    )
 
     # Champion/challenger gate: only promote if the new best actually beats
     # the current champion, re-evaluated on this run's own test split so the
