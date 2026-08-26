@@ -18,7 +18,7 @@ from features import BOOLEAN, CATEGORICAL
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_URL = os.environ.get("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 MAX_TOOL_ITERATIONS = 5
 
 GROUPABLE_COLUMNS = CATEGORICAL + BOOLEAN
@@ -156,19 +156,50 @@ TOOLS = [
 def _call_openrouter(messages: list[dict]) -> dict:
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
-    resp = requests.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-        json={
-            "model": OPENROUTER_MODEL,
-            "messages": messages,
-            "tools": TOOLS,
-            "tool_choice": "auto",
-        },
-        timeout=60,
+
+    import time
+
+    retryable_statuses = {502, 503, 504}
+    last_error = None
+
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(
+                OPENROUTER_URL,
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json={
+                    "model": OPENROUTER_MODEL,
+                    "messages": messages,
+                    "tools": TOOLS,
+                    "tool_choice": "auto",
+                },
+                timeout=35,
+            )
+
+            if resp.status_code in retryable_statuses:
+                last_error = RuntimeError(
+                    f"LLM gateway returned HTTP {resp.status_code}: {resp.text[:300]}"
+                )
+                if attempt < 3:
+                    time.sleep(2 ** attempt)
+                    continue
+
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]
+
+        except (requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError) as exc:
+            last_error = exc
+            if attempt < 3:
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(
+                f"LLM gateway unavailable after 3 attempts: {exc}"
+            ) from exc
+
+    raise RuntimeError(
+        f"LLM gateway unavailable after 3 attempts: {last_error}"
     )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]
 
 
 def _execute_tool(name: str, args: dict, sources: list[str]) -> str:

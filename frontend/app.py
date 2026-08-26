@@ -137,7 +137,7 @@ if page == "Chat":
                             "customer_id": st.session_state.active_customer_id,
                             "message": st.session_state.pending_prompt,
                         },
-                        timeout=30,
+                        timeout=150,
                     )
                     resp.raise_for_status()
                     data = resp.json()
