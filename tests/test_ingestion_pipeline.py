@@ -48,6 +48,18 @@ def test_validate_raw_accepts_well_formed_data():
     validate_raw(df)  # should not raise
 
 
+def test_validate_raw_rejects_invalid_boolean_value():
+    df = pd.DataFrame([_base_row(Partner="maybe")])
+    with pytest.raises(ValueError, match="Partner"):
+        validate_raw(df)
+
+
+def test_validate_raw_rejects_negative_numeric_value():
+    df = pd.DataFrame([_base_row(tenure=-1)])
+    with pytest.raises(ValueError, match="tenure"):
+        validate_raw(df)
+
+
 def test_clean_drops_rows_with_blank_total_charges():
     df = pd.DataFrame(
         [_base_row(customerID="C0001", TotalCharges=" "), _base_row(customerID="C0002")]

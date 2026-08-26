@@ -1,6 +1,7 @@
 """Chroma-backed retrieval over backend/docs/*.md, embedded in this process."""
 import os
 import re
+import hashlib
 from pathlib import Path
 
 import chromadb
@@ -11,6 +12,7 @@ COLLECTION_NAME = "telco_docs"
 
 _client = None
 _collection = None
+_docs_signature = None
 
 
 def _chunk_markdown(text: str, source: str) -> list[dict]:
@@ -26,15 +28,23 @@ def _chunk_markdown(text: str, source: str) -> list[dict]:
 
 
 def _build_collection():
-    global _client, _collection
+    global _client, _collection, _docs_signature
     _client = chromadb.PersistentClient(path=PERSIST_DIR)
+    paths = sorted(DOCS_DIR.glob("*.md"))
+    signature = hashlib.sha256(
+        b"".join(path.name.encode() + path.read_bytes() for path in paths)
+    ).hexdigest()
     _collection = _client.get_or_create_collection(COLLECTION_NAME)
 
-    if _collection.count() > 0:
+    if _collection.count() > 0 and _docs_signature == signature:
         return
 
+    if _collection.count() > 0:
+        _client.delete_collection(COLLECTION_NAME)
+        _collection = _client.get_or_create_collection(COLLECTION_NAME)
+
     ids, docs, metadatas = [], [], []
-    for path in sorted(DOCS_DIR.glob("*.md")):
+    for path in paths:
         chunks = _chunk_markdown(path.read_text(encoding="utf-8"), path.name)
         for chunk in chunks:
             ids.append(chunk["source"])
@@ -43,6 +53,7 @@ def _build_collection():
 
     if docs:
         _collection.add(ids=ids, documents=docs, metadatas=metadatas)
+    _docs_signature = signature
 
 
 def _get_collection():

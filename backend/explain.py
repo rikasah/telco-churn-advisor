@@ -12,6 +12,7 @@ values inside predict_fn before handing rows to the real sklearn pipeline.
 import numpy as np
 import pandas as pd
 import shap
+from sqlalchemy import text
 
 from features import BOOLEAN, CATEGORICAL, FEATURE_COLUMNS
 from model import _engine, _load_model, get_customer_row
@@ -87,8 +88,13 @@ def _get_explainer():
     global _explainer
     if _explainer is None:
         background = _get_background_raw()
-        for col in CATEGORICAL:
-            _categories[col] = sorted(background[col].unique().tolist())
+        with _engine.connect() as conn:
+            for col in CATEGORICAL:
+                values = pd.read_sql(
+                    text(f"SELECT DISTINCT {col} FROM customers WHERE {col} IS NOT NULL"),
+                    conn,
+                )[col].tolist()
+                _categories[col] = sorted(values)
 
         model = _load_model()
 

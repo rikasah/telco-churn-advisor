@@ -102,6 +102,18 @@ def test_execute_tool_list_high_risk_customers_defaults_to_10(monkeypatch):
     assert captured["n"] == 10
 
 
+def test_execute_tool_list_high_risk_customers_caps_requested_n(monkeypatch):
+    captured = {}
+
+    def fake_top_risk(n):
+        captured["n"] = n
+        return []
+
+    monkeypatch.setattr(system_status, "get_top_risk_customers", fake_top_risk)
+    agent._execute_tool("list_high_risk_customers", {"n": 10000}, [])
+    assert captured["n"] == 100
+
+
 def test_execute_tool_aggregate_customers_passes_group_by(monkeypatch):
     captured = {}
 

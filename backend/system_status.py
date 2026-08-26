@@ -23,6 +23,7 @@ INGESTION_URL = os.environ.get("INGESTION_URL", "http://ingestion:8001")
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 EXPERIMENT_NAME = "telco_churn"
 REGISTERED_MODEL_NAME = "telco_churn_model"
+MAX_TOP_RISK_CUSTOMERS = 100
 
 
 def get_data_status() -> dict:
@@ -104,6 +105,7 @@ def _score_all_customers() -> pd.DataFrame:
 
 
 def get_top_risk_customers(n: int = 10) -> list[dict]:
+    n = max(1, min(int(n), MAX_TOP_RISK_CUSTOMERS))
     df = _score_all_customers()
     top = df.sort_values("churn_probability", ascending=False).head(n)
     cols = ["customer_id", "churn_probability", "risk_level", "contract", "tenure", "monthly_charges"]

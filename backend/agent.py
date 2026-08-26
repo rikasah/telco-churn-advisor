@@ -20,6 +20,7 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MAX_TOOL_ITERATIONS = 5
+MAX_TOP_RISK_CUSTOMERS = 100
 
 GROUPABLE_COLUMNS = CATEGORICAL + BOOLEAN
 
@@ -172,38 +173,50 @@ def _call_openrouter(messages: list[dict]) -> dict:
 
 
 def _execute_tool(name: str, args: dict, sources: list[str]) -> str:
-    if name == "predict_churn":
-        try:
-            result = model_module.predict_churn(args["customer_id"])
-        except model_module.CustomerNotFound:
-            return json.dumps({"error": f"customer {args['customer_id']} not found"})
-        return json.dumps(result)
+    try:
+        if name in {"predict_churn", "explain_prediction"}:
+            customer_id = args.get("customer_id")
+            if not isinstance(customer_id, str) or not 1 <= len(customer_id) <= 64:
+                return json.dumps({"error": "customer_id must be a non-empty string"})
+            try:
+                result = (
+                    model_module.predict_churn(customer_id)
+                    if name == "predict_churn"
+                    else explain.explain_churn(customer_id)
+                )
+            except model_module.CustomerNotFound:
+                return json.dumps({"error": f"customer {customer_id} not found"})
+            return json.dumps(result)
 
-    if name == "explain_prediction":
-        try:
-            result = explain.explain_churn(args["customer_id"])
-        except model_module.CustomerNotFound:
-            return json.dumps({"error": f"customer {args['customer_id']} not found"})
-        return json.dumps(result)
+        if name == "retrieve_docs":
+            query = args.get("query")
+            if not isinstance(query, str) or not query.strip():
+                return json.dumps({"error": "query must be a non-empty string"})
+            hits = rag.retrieve(query[:1000], k=3)
+            for hit in hits:
+                if hit["source"] not in sources:
+                    sources.append(hit["source"])
+            return json.dumps(hits)
 
-    if name == "retrieve_docs":
-        hits = rag.retrieve(args["query"], k=3)
-        for hit in hits:
-            if hit["source"] not in sources:
-                sources.append(hit["source"])
-        return json.dumps(hits)
+        if name == "count_customers_by_risk":
+            return json.dumps(system_status.get_risk_summary())
 
-    if name == "count_customers_by_risk":
-        return json.dumps(system_status.get_risk_summary())
+        if name == "list_high_risk_customers":
+            n = args.get("n", 10)
+            if not isinstance(n, int) or isinstance(n, bool):
+                return json.dumps({"error": "n must be an integer"})
+            n = max(1, min(n, MAX_TOP_RISK_CUSTOMERS))
+            return json.dumps(system_status.get_top_risk_customers(n))
 
-    if name == "list_high_risk_customers":
-        n = args.get("n") or 10
-        return json.dumps(system_status.get_top_risk_customers(n))
+        if name == "aggregate_customers":
+            group_by = args.get("group_by", "")
+            if not isinstance(group_by, str):
+                return json.dumps({"error": "group_by must be a string"})
+            return json.dumps(system_status.aggregate_customers(group_by[:64]))
 
-    if name == "aggregate_customers":
-        return json.dumps(system_status.aggregate_customers(args.get("group_by", "")))
-
-    return json.dumps({"error": f"unknown tool {name}"})
+        return json.dumps({"error": f"unknown tool {name}"})
+    except (TypeError, ValueError, KeyError) as exc:
+        return json.dumps({"error": f"invalid tool arguments: {exc}"})
 
 
 # Matches markdown links pointing at a local .md file, e.g.
@@ -241,14 +254,18 @@ def run_chat(customer_id: str, message: str) -> dict:
             }
 
         for tc in tool_calls:
-            name = tc["function"]["name"]
-            args = json.loads(tc["function"]["arguments"] or "{}")
+            name = tc.get("function", {}).get("name", "")
+            try:
+                args = json.loads(tc.get("function", {}).get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+                name = "invalid_tool_arguments"
             tool_calls_made.append(name)
             result = _execute_tool(name, args, sources)
             messages.append(
                 {
                     "role": "tool",
-                    "tool_call_id": tc["id"],
+                    "tool_call_id": tc.get("id", "invalid-tool-call"),
                     "content": result,
                 }
             )

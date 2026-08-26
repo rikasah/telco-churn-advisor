@@ -2,6 +2,7 @@
 import io
 import logging
 import os
+import numpy as np
 
 import pandas as pd
 import requests
@@ -105,6 +106,18 @@ def validate_raw(df: pd.DataFrame) -> None:
         raise ValueError(f"missing required columns: {missing}")
     if df.empty:
         raise ValueError("source dataset is empty")
+    if df["customerID"].isna().any() or (df["customerID"].astype(str).str.strip() == "").any():
+        raise ValueError("customerID contains empty values")
+    for col in YES_NO_COLUMNS:
+        invalid = set(df[col].dropna().unique()) - {"Yes", "No"}
+        if invalid:
+            raise ValueError(f"invalid values in {col}: {sorted(invalid)}")
+    if not set(df["SeniorCitizen"].dropna().unique()).issubset({0, 1}):
+        raise ValueError("SeniorCitizen must contain only 0 or 1")
+    for col in ["tenure", "MonthlyCharges"]:
+        values = pd.to_numeric(df[col], errors="coerce")
+        if values.isna().any() or not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError(f"invalid non-negative numeric values in {col}")
 
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:

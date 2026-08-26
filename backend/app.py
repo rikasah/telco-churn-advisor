@@ -1,8 +1,8 @@
 """FastAPI backend: /predict (model) and /chat (agent)."""
 import time
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
 
 import agent
 import explain
@@ -14,7 +14,7 @@ app = FastAPI(title="Telco Churn Advisor API")
 
 
 class PredictRequest(BaseModel):
-    customer_id: str
+    customer_id: str = Field(min_length=1, max_length=64)
 
 
 class PredictResponse(BaseModel):
@@ -23,8 +23,8 @@ class PredictResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    customer_id: str
-    message: str
+    customer_id: str = Field(min_length=1, max_length=64)
+    message: str = Field(min_length=1, max_length=4000)
 
 
 class ChatResponse(BaseModel):
@@ -92,7 +92,7 @@ def model_trend():
 
 
 @app.get("/top-risk")
-def top_risk(n: int = 10):
+def top_risk(n: int = Query(default=10, ge=1, le=100)):
     return system_status.get_top_risk_customers(n)
 
 
@@ -102,7 +102,7 @@ def risk_summary():
 
 
 @app.get("/aggregate")
-def aggregate(group_by: str):
+def aggregate(group_by: str = Query(min_length=1, max_length=64)):
     return system_status.aggregate_customers(group_by)
 
 
