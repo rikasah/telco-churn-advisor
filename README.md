@@ -2,6 +2,15 @@
 
 Final project AI Engineer — prediksi customer churn + agent chat (tool-calling, RAG) di atas data telco.
 
+## Live Demo & Presentasi
+
+- **Aplikasi live**: https://initiative-treating-fda-titten.trycloudflare.com/
+- **Slide presentasi (PPT)**: https://docs.google.com/presentation/d/15sEXZMKRODHdeamQnghaanRVn4Z6B0B7JNvgvorcQAs/edit?usp=sharing
+
+(URL aplikasi berubah tiap kali tunnel di-restart — kalau link di atas sudah
+tidak aktif, lihat bagian "Deploy publik (Cloudflare Tunnel)" di bawah untuk
+cara mendapatkan URL baru.)
+
 ## Struktur
 
 ```
